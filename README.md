@@ -1,4 +1,4 @@
-# Experiment #2
+# aDNA-SampleGetter
 
 Automatically download samples from databases using Python Web Scrapping
 
