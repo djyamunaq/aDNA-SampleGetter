@@ -1,0 +1,3 @@
+[console_scripts]
+sgetpipe = sgetpipe.__main__:main
+
