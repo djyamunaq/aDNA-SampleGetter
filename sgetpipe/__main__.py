@@ -74,17 +74,14 @@ def processEbiURL(url):
     soup = BeautifulSoup(page.content, 'html.parser')
     table = soup.find('table', {'id': 'table-samples'})
 
-def processNcbiURL(url):
-    pass
-
 def checkFastQLink(df):
     for value in df.iloc[0]:
         ebiPattern = re.compile("^\"http?://www.ebi.ac.uk/*")
         ncbiPattern = re.compile("^\"http?://www.ncbi.nlm.nih.gov/*")
         if ebiPattern.match(value):
             url = value.replace('\"', '')
-            altId = url.split('/')[-1]
-            processEbiURL(altId)
+            alt_id = url.split('/')[-1]
+            processEbiURL(alt_id)
             return True
         elif ncbiPattern.match(value): 
             url = value.replace('\"', '')
@@ -99,8 +96,8 @@ def getFastQLink(df):
             url = value.replace('\"', '')
     return url        
 
-def getFastQ(altId, output_dir):  
-    url = f'https://www.ebi.ac.uk/ena/portal/api/filereport?accession={altId}&result=read_run&fields=run_accession,fastq_ftp,fastq_md5,fastq_bytes'
+def getFastQ(alt_id, fasta_name, output_dir):  
+    url = f'https://www.ebi.ac.uk/ena/portal/api/filereport?accession={alt_id}&result=read_run&fields=run_accession,fastq_ftp,fastq_md5,fastq_bytes'
     page = requests.get(url) 
 
     if page.status_code != 200:
@@ -116,10 +113,22 @@ def getFastQ(altId, output_dir):
     df = df[1:]
     df = df.reset_index(drop=True)
 
+    
+    fastq_index = 1
     for value in df['fastq_ftp']:
         if value != None:
-            subprocess.run(['wget', '-P', output_dir, value])
-            exit(0)
+            fastq_name = 'fastq' + str(fastq_index)
+            output_dir_fastq = os.path.join(output_dir, fastq_name)
+            subprocess.run(['rm', '-rf', output_dir_fastq])
+            subprocess.run(['mkdir', output_dir_fastq])
+            fastq_name += '.fastq.gz'
+            fastq_index += 1
+            
+            fastq_name = os.path.join(output_dir_fastq, fastq_name)
+            subprocess.run(['wget', '-O', fastq_name, value])
+            subprocess.run(['classpipe', '--refDNA', os.path.join(output_dir, fasta_name), '--aDNA1', fastq_name,  '--output', output_dir_fastq, '--saveBam'])
+            subprocess.run(['rm', '-rf', fastq_name])
+
 def main():
     parser = ArgumentParser()
 
@@ -186,7 +195,6 @@ def main():
         output_dir = os.path.join(args.output, 'samples')
     subprocess.run(['rm', '-rf', output_dir])
     subprocess.run(['mkdir', output_dir])
-    
 
     # Download samples to output directory
     for i in range(len(links)):
@@ -201,8 +209,9 @@ def main():
         metadataFile.close()
         
         data_link = getFastQLink(metadataDF)
-        altId = data_link.split('/')[-1]
-        getFastQ(altId, output_dir)
+        alt_id = data_link.split('/')[-1]
+        fasta_name = links[i].split('/')[-1]
+        getFastQ(alt_id, fasta_name, output_dir_sample)
         
     # Mount pandas dataframe and filter by samples in ids list 
     df = pd.read_html(str(table))[0]
