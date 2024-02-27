@@ -9,12 +9,12 @@ from colorama import Fore, Back, Style
 from argparse import ArgumentParser, Namespace
 from bs4 import BeautifulSoup
 
-def printErrorMessage(message):
+def print_error_message(message):
     print(Fore.RED + Style.BRIGHT + '[ERROR]', end=' ')
     print(message)
     print(Style.RESET_ALL)
 
-def downloadMetaData(id):
+def download_meta_data(id):
     url ='https://amtdb.org/download_metadata'
 
     payload = {
@@ -61,48 +61,36 @@ def downloadMetaData(id):
 
     return df    
 
-def processEbiURL(url):
-    # Get samples table from AMTDB website
-    url = 'https://amtdb.org/samples'
-    page = requests.get(url) 
-    
-    if page.status_code != 200:
-        message = 'Status code ' + str(page.status_code) + ' while trying to connect to ' + url
-        printErrorMessage(message)
-        exit(1)
-
-    soup = BeautifulSoup(page.content, 'html.parser')
-    table = soup.find('table', {'id': 'table-samples'})
-
-def checkFastQLink(df):
+def check_fastq_link(df):
     for value in df.iloc[0]:
-        ebiPattern = re.compile("^\"http?://www.ebi.ac.uk/*")
-        ncbiPattern = re.compile("^\"http?://www.ncbi.nlm.nih.gov/*")
-        if ebiPattern.match(value):
+        ebi_pattern = re.compile("^\"https?://www.ebi.ac.uk/*")
+        ncbi_pattern = re.compile("^\"https?://www.ncbi.nlm.nih.gov/*")
+        
+        if ebi_pattern.match(value):
             url = value.replace('\"', '')
             alt_id = url.split('/')[-1]
-            processEbiURL(alt_id)
             return True
-        elif ncbiPattern.match(value): 
+        elif ncbi_pattern.match(value): 
             url = value.replace('\"', '')
             return False
+    return False
     
-def getFastQLink(df):
+def get_fastq_link(df):
     url = ''
     for value in df.iloc[0]:
-        ebiPattern = re.compile("^\"http?://www.ebi.ac.uk/*")
-        ncbiPattern = re.compile("^\"http?://www.ncbi.nlm.nih.gov/*")
-        if ebiPattern.match(value):
+        ebi_pattern = re.compile("^\"http?://www.ebi.ac.uk/*")
+        ncbi_pattern = re.compile("^\"http?://www.ncbi.nlm.nih.gov/*")
+        if ebi_pattern.match(value):
             url = value.replace('\"', '')
     return url        
 
-def getFastQ(alt_id, fasta_name, output_dir):  
+def get_fastq(alt_id, fasta_name, output_dir):  
     url = f'https://www.ebi.ac.uk/ena/portal/api/filereport?accession={alt_id}&result=read_run&fields=run_accession,fastq_ftp,fastq_md5,fastq_bytes'
     page = requests.get(url) 
 
     if page.status_code != 200:
         message = 'Status code ' + str(page.status_code) + ' while trying to connect to ' + url
-        printErrorMessage(message)
+        print_error_message(message)
         exit(1)
 
     raw_data = page.content.decode('utf-8')
@@ -112,43 +100,36 @@ def getFastQ(alt_id, fasta_name, output_dir):
     df.columns = df.iloc[0]
     df = df[1:]
     df = df.reset_index(drop=True)
-
     
     fastq_index = 1
-    for value in df['fastq_ftp']:
-        if value != None:
-            fastq_name = 'fastq' + str(fastq_index)
+    for i in range(len(df)):
+        row = df.iloc[i]
+        run_accession = df.iloc[i]['run_accession']
+        fastq_md5 = df.iloc[i]['fastq_md5']
+        
+        if run_accession != None and fastq_md5 != None:
+            fastq_name = run_accession
             output_dir_fastq = os.path.join(output_dir, fastq_name)
             subprocess.run(['rm', '-rf', output_dir_fastq])
             subprocess.run(['mkdir', output_dir_fastq])
             fastq_name += '.fastq.gz'
-            fastq_index += 1
+            # fastq_name = os.path.join(output_dir_fastq, fastq_name)
             
-            fastq_name = os.path.join(output_dir_fastq, fastq_name)
-            subprocess.run(['wget', '-O', fastq_name, value])
-            subprocess.run(['classpipe', '--refDNA', os.path.join(output_dir, fasta_name), '--aDNA1', fastq_name,  '--output', output_dir_fastq, '--saveBam'])
-            subprocess.run(['rm', '-rf', fastq_name])
+            try:
+                subprocess.run(['parallel-fastq-dump', '--sra-id', run_accession, '--threads', '4', '--outdir', output_dir_fastq,'--split-files', '--gzip'])
+            except SystemExit:
+                print_error_message('Could not download file with run acession:', run_accession)
+                continue
+            
+            # subprocess.run(['classpipe', '--refDNA', os.path.join(output_dir, fasta_name), '--aDNA1', fastq_name,  '--output', output_dir_fastq, '--saveBam'])
+            # subprocess.run(['rm', '-rf', fastq_name])
 
-def main():
-    parser = ArgumentParser()
-
-    # Set number of samples from command line
-    parser.add_argument('--nSamples', help='Number of references to download')
-    parser.add_argument('--output', help='Set output destination [Default: .]', default='.')
-
-    # Get arguments from command line
-    args: Namespace = parser.parse_args()
-
-    # Number of samples requested
-    nSamples = int(args.nSamples)
-
-    # Get samples table from AMTDB website
-    url = 'https://amtdb.org/samples'
+def get_info_from_amtdb(url, nSamples):
     page = requests.get(url) 
     
     if page.status_code != 200:
         message = 'Status code ' + str(page.status_code) + ' while trying to connect to ' + url
-        printErrorMessage(message)
+        print_error_message(message)
         exit(1)
 
     soup = BeautifulSoup(page.content, 'html.parser')
@@ -158,8 +139,9 @@ def main():
     rows = table.findAll('tr')
     rows = rows[1:]
     
-    # Sample ids and links to download lists
+    # Sample Id
     ids = []
+    # Sample link to fasta
     links = []
 
     for row in rows:
@@ -179,8 +161,8 @@ def main():
     # Get list of random indexes
     while len(indexes) < nSamples:
         index = random.randint(0, len(ids))
-        metadataDF = downloadMetaData(ids[index])
-        validFastqLink = checkFastQLink(metadataDF)
+        metadataDF = download_meta_data(ids[index])
+        validFastqLink = check_fastq_link(metadataDF)
         
         if validFastqLink and index not in indexes:
             indexes.append(index)
@@ -188,6 +170,25 @@ def main():
     # Filter list by generated indexes
     ids = [ids[i] for i in indexes]
     links = [links[i] for i in indexes]
+    
+    return ids, links
+
+def main():
+    parser = ArgumentParser()
+
+    # Set number of samples from command line
+    parser.add_argument('-n', help='Number of references to download')
+    parser.add_argument('--output', help='Set output destination [Default: .]', default='.')
+
+    # Get arguments from command line
+    args: Namespace = parser.parse_args()
+
+    # Number of samples requested
+    nSamples = int(args.n)
+
+    # Get samples table from AMTDB website
+    url = 'https://amtdb.org/samples'
+    ids, links = get_info_from_amtdb(url, nSamples)
 
     # Create output dir if it doesn't exist
     output_dir = args.output
@@ -203,15 +204,15 @@ def main():
         subprocess.run(['wget', '-P', output_dir_sample, links[i]])
         
         # Save metadata to file
-        metadataDF = downloadMetaData(ids[i])
+        metadataDF = download_meta_data(ids[i])
         metadataFile = open(os.path.join(output_dir_sample, './metadata.txt'), 'w')
         metadataFile.write(metadataDF.to_string())
         metadataFile.close()
         
-        data_link = getFastQLink(metadataDF)
+        data_link = get_fastq_link(metadataDF)
         alt_id = data_link.split('/')[-1]
         fasta_name = links[i].split('/')[-1]
-        getFastQ(alt_id, fasta_name, output_dir_sample)
+        get_fastq(alt_id, fasta_name, output_dir_sample)
         
     # Mount pandas dataframe and filter by samples in ids list 
     df = pd.read_html(str(table))[0]
