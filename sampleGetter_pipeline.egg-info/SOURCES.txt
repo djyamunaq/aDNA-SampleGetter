@@ -3,6 +3,7 @@ setup.py
 sampleGetter_pipeline.egg-info/PKG-INFO
 sampleGetter_pipeline.egg-info/SOURCES.txt
 sampleGetter_pipeline.egg-info/dependency_links.txt
+sampleGetter_pipeline.egg-info/desktop.ini
 sampleGetter_pipeline.egg-info/entry_points.txt
 sampleGetter_pipeline.egg-info/top_level.txt
 sgetpipe/__init__.py

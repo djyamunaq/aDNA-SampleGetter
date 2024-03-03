@@ -1,10 +1,3 @@
-'''
-get_info_from_amtdb: Download table of samples from amtdb, 
-and filter rows that contain fastq links
-parameters: None
-return: sample id list, link to fasta list, metadata map
-'''
-
 import requests 
 import re
 import pandas as pd
